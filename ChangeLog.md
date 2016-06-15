@@ -13,6 +13,9 @@ Other enhancements:
 * Stack/Nix: Passes the right ghc derivation as an argument to the `shell.nix` when a
   custom `shell.nix` is used
   See [#2243](https://github.com/commercialhaskell/stack/issues/2243)
+* Nix: No longer uses LTS mirroring in nixpkgs. Gives to nix-shell a derivation
+  like `haskell.compiler.ghc801`
+  See [#2259](https://github.com/commercialhaskell/stack/issues/2259)
 
 Bug fixes:
 
