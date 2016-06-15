@@ -713,16 +713,24 @@ setupParser = SetupCmdOpts
                     Just x -> return x
             Just x -> return x
 
+loadCompilerVersion :: Manager -> GlobalOpts -> LoadConfig (StackLoggingT IO)
+                              -> IO CompilerVersion
+loadCompilerVersion manager go lc = do
+  bconfig <- runStackLoggingTGlobal manager go $
+    lcLoadBuildConfig lc (globalCompiler go)
+  return $ bcWantedCompiler bconfig
+  
 setupCmd :: SetupCmdOpts -> GlobalOpts -> IO ()
 setupCmd SetupCmdOpts{..} go@GlobalOpts{..} = do
   (manager,lc) <- loadConfigWithOpts go
-  withUserFileLock go (configStackRoot $ lcConfig lc) $ \lk ->
-    runStackTGlobal manager (lcConfig lc) go $
+  withUserFileLock go (configStackRoot $ lcConfig lc) $ \lk -> do
+    compilerVersion <- loadCompilerVersion manager go lc
+    runStackTGlobal manager (lcConfig lc) go $ do
       Docker.reexecWithOptionalContainer
           (lcProjectRoot lc)
           Nothing
           (runStackTGlobal manager (lcConfig lc) go $
-           Nix.reexecWithOptionalShell (lcProjectRoot lc) globalResolver globalCompiler $
+           Nix.reexecWithOptionalShell (lcProjectRoot lc) compilerVersion $
            runStackLoggingTGlobal manager go $ do
               (wantedCompiler, compilerCheck, mstack) <-
                   case scoCompilerVersion of
@@ -875,7 +883,7 @@ withBuildConfigExt go@GlobalOpts{..} mbefore inner mafter = do
 
     withUserFileLock go (configStackRoot $ lcConfig lc) $ \lk0 -> do
       -- A local bit of state for communication between callbacks:
-      curLk <- newIORef lk0
+      curLk <- newIORef lk0      
       let inner' lk =
             -- Locking policy:  This is only used for build commands, which
             -- only need to lock the snapshot, not the global lock.  We
@@ -890,22 +898,21 @@ withBuildConfigExt go@GlobalOpts{..} mbefore inner mafter = do
       let inner'' lk = do
               bconfig <- runStackLoggingTGlobal manager go $
                   lcLoadBuildConfig lc globalCompiler
-              envConfig <-
-                 runStackTGlobal
-                     manager bconfig go
-                     (setupEnv Nothing)
+              envConfig <- runStackTGlobal manager bconfig go (setupEnv Nothing)
               runStackTGlobal
                   manager
                   envConfig
                   go
                   (inner' lk)
 
+      compilerVersion <- loadCompilerVersion manager go lc
       runStackTGlobal manager (lcConfig lc) go $
         Docker.reexecWithOptionalContainer
                  (lcProjectRoot lc)
                  mbefore
                  (runStackTGlobal manager (lcConfig lc) go $
-                    Nix.reexecWithOptionalShell (lcProjectRoot lc) globalResolver globalCompiler (inner'' lk0))
+                    Nix.reexecWithOptionalShell (lcProjectRoot lc) compilerVersion
+                                                (inner'' lk0))
                  mafter
                  (Just $ liftIO $
                       do lk' <- readIORef curLk
@@ -1048,7 +1055,8 @@ execCmd ExecOpts {..} go@GlobalOpts{..} =
                  (ExecGhc, args) -> return ("ghc", args)
                  (ExecRunGhc, args) -> return ("runghc", args)
             (manager,lc) <- liftIO $ loadConfigWithOpts go
-            withUserFileLock go (configStackRoot $ lcConfig lc) $ \lk ->
+            withUserFileLock go (configStackRoot $ lcConfig lc) $ \lk -> do
+              compilerVersion <- loadCompilerVersion manager go lc
               runStackTGlobal manager (lcConfig lc) go $
                 Docker.reexecWithOptionalContainer
                     (lcProjectRoot lc)
@@ -1059,8 +1067,7 @@ execCmd ExecOpts {..} go@GlobalOpts{..} =
                         menv <- liftIO $ configEnvOverride config plainEnvSettings
                         Nix.reexecWithOptionalShell
                             (lcProjectRoot lc)
-                            globalResolver
-                            globalCompiler
+                            compilerVersion
                             (runStackTGlobal manager (lcConfig lc) go $
                                 exec menv cmd args))
                     Nothing
