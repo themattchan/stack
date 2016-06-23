@@ -900,11 +900,13 @@ withBuildConfigExt go@GlobalOpts{..} mbefore inner mafter = do
                   go
                   (inner' lk)
 
-      runStackTGlobal manager (lcConfig lc) go $
+      runStackTGlobal manager (lcConfig lc) go $ do
+        $logDebug "Going to run the CONTAINER:"
         Docker.reexecWithOptionalContainer
                  (lcProjectRoot lc)
                  mbefore
-                 (runStackTGlobal manager (lcConfig lc) go $
+                 (runStackTGlobal manager (lcConfig lc) go $ do
+                    $logDebug "IM INSIDE THE CONTAINER!!!"
                     Nix.reexecWithOptionalShell (lcProjectRoot lc) globalResolver globalCompiler (inner'' lk0))
                  mafter
                  (Just $ liftIO $
